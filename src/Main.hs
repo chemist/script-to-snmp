@@ -22,12 +22,12 @@ import Control.Monad
 
 import Prelude 
 
--- | Container for dictionary (script name ->  values, functions) 
+-- | Container for dictionary (script name ->  PVal) 
 data Handle = Handle
-  { exitCodeHandle :: ScriptName -> IO Value
+  { exitCodeHandle :: ScriptName -> PVal
   , optionsHandle  :: ScriptName -> PVal
-  , outputHandle   :: ScriptName -> IO Value
-  , errorsHandle   :: ScriptName -> IO Value
+  , outputHandle   :: ScriptName -> PVal
+  , errorsHandle   :: ScriptName -> PVal
   }
 
 -- | options for scripts
@@ -81,11 +81,11 @@ scripts h fp = Update $ do
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
            else return 
              [ mkObject i fp n Nothing
-             , mkObjectType 0 n "status" Nothing $ rdValue $ exitCodeHandle h (fp </> n)
+             , mkObjectType 0 n "status" Nothing $ exitCodeHandle h (fp </> n)
              , mkObjectType 1 n "name"   Nothing $ bstr    $ pack (fp </> n)
              , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
-             , mkObjectType 3 n "stdout" Nothing $ rdValue $ outputHandle h (fp </> n)
-             , mkObjectType 4 n "stderr" Nothing $ rdValue $ errorsHandle h (fp </> n)
+             , mkObjectType 3 n "stdout" Nothing $ outputHandle h (fp </> n)
+             , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
              ]
 
 -- | create handle
@@ -97,13 +97,12 @@ mkHandle mv = Handle
     , errorsHandle = handler errors
     }
     where
-    handler f sn = do
+    -- execute script , make getter for ro result and reexecute 
+    handler f sn = Read $ do
         -- execute script by script name, modify mv
         runScript sn  
         m <- readMVar mv 
-        -- return exit code for this execution
         return . f $ m ! sn
-
     -- reader for Options
     readOpts sn = do
         createOpts sn 
