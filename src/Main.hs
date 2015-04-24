@@ -12,12 +12,11 @@ import Control.Applicative
 import System.Process
 import Control.Exception
 import Control.Concurrent
-import Data.Maybe (isJust, fromJust)
+import Data.Maybe (fromMaybe)
 import Data.Time
 import System.Exit
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
-import Data.IORef
 import Control.Monad
 
 import Prelude 
@@ -39,7 +38,7 @@ data ScriptValues = ScriptValues
   { exitCode :: Value -- ^ returned value, string
   , output   :: Value -- ^ output, string
   , errors   :: Value -- ^ errors, string
-  , options  :: IORef Options -- ^ mutable store for options
+  , options  :: Value -- ^ mutable store for options
   , lastExec :: UTCTime -- ^ last execute time
   }
 
@@ -103,19 +102,16 @@ mkHandle mv = Handle
         runScript sn  
         m <- readMVar mv 
         return . f $ m ! sn
-    -- reader for Options
     readOpts sn = do
         createOpts sn 
         m <- readMVar mv
-        v <- readIORef (options $ m ! sn)
-        return . String . pack . unwords $ v
+        return $ options $ m ! sn
     -- setter for Options
-    commitOpts sn (String v) = do
+    commitOpts sn v = do
         createOpts sn 
-        m <- readMVar mv
-        writeIORef (options $ m ! sn) (words $ unpack v)
+        modifyMVar_ mv $
+            \st -> return $ Map.update (\x -> Just $ x { options = v }) sn st
         return NoCommitError
-    commitOpts _ _ = error "bad commit"
     -- Options must be string
     testOpts _ (String _) = return NoTestError
     testOpts _ _ = return WrongValue
@@ -128,9 +124,8 @@ mkHandle mv = Handle
         \st -> maybe (createOpts' st) (const (return st)) (Map.lookup sn st)
       where
         createOpts' st = do
-            i <- newIORef []
             let zero = str ""
-            let val = ScriptValues zero zero zero i (UTCTime (toEnum 0) (toEnum 0))
+            let val = ScriptValues zero zero zero zero (UTCTime (toEnum 0) (toEnum 0))
             return $ Map.insert sn val st
     
     -- If first run, execute script, save ScriptValues to Map
@@ -140,14 +135,11 @@ mkHandle mv = Handle
         \st -> maybe (runAndUpdate st Nothing) (checkAndReturn st) $ Map.lookup sn st
       where
         runAndUpdate st opts' = do
-            opts'' <- if isJust opts'
-                        then return (fromJust opts')
-                        else newIORef []
-            options' <- readIORef opts''
-            (c, o, e)  <- catch (readProcessWithExitCode sn options' []) 
+            let String options' = fromMaybe (String "") opts'
+            (c, o, e)  <- catch (readProcessWithExitCode sn (words . unpack $ options') []) 
                                (\(problem::SomeException) -> return (ExitFailure 1, "", show problem))
             now <- getCurrentTime
-            let val = ScriptValues (str (show c)) (str o) (str e) opts'' now
+            let val = ScriptValues (str (show c)) (str o) (str e) (String options') now
             return $ Map.insert sn val st
         checkAndReturn st val = do
             now <- getCurrentTime
