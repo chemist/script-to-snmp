@@ -21,36 +21,44 @@ import Data.IORef
 
 import Prelude 
 
+-- | io values and functions in internaly
 data Handle = Handle
-  { status :: ScriptName -> IO Value
-  , opts :: ScriptName -> PVal
-  , out :: ScriptName -> IO Value
-  , err :: ScriptName -> IO Value
+  { exitCodeHandle :: ScriptName -> IO Value
+  , optionsHandle  :: ScriptName -> PVal
+  , outputHandle   :: ScriptName -> IO Value
+  , errorsHandle   :: ScriptName -> IO Value
   }
 
+-- | options for scripts
 type Options = [String]
 
 type ScriptName = String
 
 data ScriptValues = ScriptValues
-  { exitCode :: Value
-  , output   :: Value
-  , errors   :: Value
-  , options  :: IORef Options
-  , lastExec :: UTCTime
+  { exitCode :: Value -- ^ returned value, string
+  , output   :: Value -- ^ output, string
+  , errors   :: Value -- ^ errors, string
+  , options  :: IORef Options -- ^ mutable store for options
+  , lastExec :: UTCTime -- ^ last execute time
   }
 
+-- | path to folder with users scripts
 scriptsPath :: FilePath
 scriptsPath = "scripts"
 
+-- | path to folder with nagios plugins
 nagiosScriptsPath :: FilePath
 nagiosScriptsPath = "nagios"
 
+-- | snmp agent
+-- execute scripts and checks in scriptPath and nagiosScriptsPath
+-- return result as SNMP
 main :: IO ()
 main = do
     mv <- newMVar Map.empty
     agent "/var/agentx/master" [1,3,6,1,4,1,44729] Nothing (mibs $ mkHandle mv)
 
+-- | build MIB tree
 mibs :: Handle -> [MIB]
 mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 0 "about" "agent-name" Nothing (bstr "script-to-snmp")
@@ -60,6 +68,7 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
          , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
          ]
 
+-- | recursively MIBs builder from directory structure
 scripts :: Handle -> FilePath -> Update
 scripts h fp = Update $ do
     files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
@@ -72,25 +81,26 @@ scripts h fp = Update $ do
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
            else return 
              [ mkObject i fp n Nothing
-             , mkObjectType 0 n "status" Nothing (rdValue (status h (fp </> n)))
+             , mkObjectType 0 n "status" Nothing (rdValue (exitCodeHandle h (fp </> n)))
              , mkObjectType 1 n "name" Nothing (bstr $ pack (fp </> n))
-             , mkObjectType 2 n "opts" Nothing (opts h (fp </> n))
-             , mkObjectType 3 n "stdout" Nothing (rdValue $ out h (fp </> n))
-             , mkObjectType 4 n "stderr" Nothing (rdValue $ err h (fp </> n))
+             , mkObjectType 2 n "opts" Nothing (optionsHandle h (fp </> n))
+             , mkObjectType 3 n "stdout" Nothing (rdValue $ outputHandle h (fp </> n))
+             , mkObjectType 4 n "stderr" Nothing (rdValue $ errorsHandle h (fp </> n))
              ]
 
+-- | create handle
 mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle
 mkHandle mv = Handle 
-    { status = \sn -> do
+    { exitCodeHandle = \sn -> do
         runScript sn  
         m <- readMVar mv 
         return . exitCode $ m ! sn
-    , opts = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
-    , out = \sn -> do
+    , optionsHandle = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
+    , outputHandle = \sn -> do
         runScript sn 
         m <- readMVar mv
         return . output $ m ! sn
-    , err = \sn -> do
+    , errorsHandle = \sn -> do
         runScript sn 
         m <- readMVar mv
         return . errors $ m ! sn
@@ -112,7 +122,8 @@ mkHandle mv = Handle
     undoOpts _ _ = return NoUndoError
 
     createOpts :: String -> IO ()
-    createOpts sn = modifyMVar_ mv $ \st -> maybe (createOpts' st) (const (return st)) $ Map.lookup sn st
+    createOpts sn = modifyMVar_ mv $ 
+        \st -> maybe (createOpts' st) (const (return st)) $ Map.lookup sn st
       where
         createOpts' st = do
             i <- newIORef []
@@ -121,14 +132,16 @@ mkHandle mv = Handle
             return $ Map.insert sn val st
     
     runScript :: String -> IO ()
-    runScript sn = modifyMVar_ mv $ \st -> maybe (runAndUpdate st Nothing) (checkAndReturn st) $ Map.lookup sn st
+    runScript sn = modifyMVar_ mv $
+        \st -> maybe (runAndUpdate st Nothing) (checkAndReturn st) $ Map.lookup sn st
       where
         runAndUpdate st opts' = do
             opts'' <- if isJust opts'
                         then return (fromJust opts')
                         else newIORef []
             options' <- readIORef opts''
-            (c, o, e)  <- catch (readProcessWithExitCode sn options' []) (\(problem::SomeException) -> return (ExitFailure 1, "", show problem))
+            (c, o, e)  <- catch (readProcessWithExitCode sn options' []) 
+                               (\(problem::SomeException) -> return (ExitFailure 1, "", show problem))
             now <- getCurrentTime
             let val = ScriptValues (str (show c)) (str o) (str e) opts'' now
             return $ Map.insert sn val st
@@ -138,12 +151,14 @@ mkHandle mv = Handle
                then runAndUpdate st (Just $ options val)
                else return st
 
+-- | helpers
 bstr :: ByteString -> PVal
 bstr x = rsValue (String x)
 
 str :: String -> Value
 str x = String (pack x)
 
+-- | here must be state saver
 update :: PVal
 update = rwValue readV commit test undo
   where
