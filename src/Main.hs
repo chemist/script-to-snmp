@@ -18,6 +18,7 @@ import System.Exit
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Data.IORef
+import Control.Monad
 
 import Prelude 
 
@@ -72,10 +73,9 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
 scripts :: Handle -> FilePath -> Update
 scripts h fp = Update $ do
     files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
-    result <-  mapM toObjects $ zip files [0 .. ]
-    return $ concat result
+    concat <$> zipWithM toObjects files [0..]
     where
-    toObjects (n, i) = do
+    toObjects n i = do
         isD <- liftIO $ doesDirectoryExist (fp </> n)
         if isD
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
