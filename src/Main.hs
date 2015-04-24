@@ -21,7 +21,7 @@ import Data.IORef
 
 import Prelude 
 
--- | io values and functions in internaly
+-- | Container for dictionary (script name ->  values, functions) 
 data Handle = Handle
   { exitCodeHandle :: ScriptName -> IO Value
   , optionsHandle  :: ScriptName -> PVal
@@ -81,49 +81,59 @@ scripts h fp = Update $ do
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
            else return 
              [ mkObject i fp n Nothing
-             , mkObjectType 0 n "status" Nothing (rdValue (exitCodeHandle h (fp </> n)))
-             , mkObjectType 1 n "name" Nothing (bstr $ pack (fp </> n))
-             , mkObjectType 2 n "opts" Nothing (optionsHandle h (fp </> n))
-             , mkObjectType 3 n "stdout" Nothing (rdValue $ outputHandle h (fp </> n))
-             , mkObjectType 4 n "stderr" Nothing (rdValue $ errorsHandle h (fp </> n))
+             , mkObjectType 0 n "status" Nothing $ rdValue $ exitCodeHandle h (fp </> n)
+             , mkObjectType 1 n "name"   Nothing $ bstr    $ pack (fp </> n)
+             , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
+             , mkObjectType 3 n "stdout" Nothing $ rdValue $ outputHandle h (fp </> n)
+             , mkObjectType 4 n "stderr" Nothing $ rdValue $ errorsHandle h (fp </> n)
              ]
 
 -- | create handle
 mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle
 mkHandle mv = Handle 
     { exitCodeHandle = \sn -> do
+        -- execute script by script name, modify mv
         runScript sn  
         m <- readMVar mv 
+        -- return exit code for this execution
         return . exitCode $ m ! sn
     , optionsHandle = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
     , outputHandle = \sn -> do
         runScript sn 
+        -- 
         m <- readMVar mv
+        -- return stdout for this execution
         return . output $ m ! sn
     , errorsHandle = \sn -> do
         runScript sn 
         m <- readMVar mv
+        -- return stderr for this execution
         return . errors $ m ! sn
     }
     where
+    -- reader for Options
     readOpts sn = do
         createOpts sn 
         m <- readMVar mv
         v <- readIORef (options $ m ! sn)
         return . String . pack . unwords $ v
+    -- setter for Options
     commitOpts sn (String v) = do
         createOpts sn 
         m <- readMVar mv
         writeIORef (options $ m ! sn) (words $ unpack v)
         return NoCommitError
     commitOpts _ _ = error "bad commit"
+    -- Options must be string
     testOpts _ (String _) = return NoTestError
     testOpts _ _ = return WrongValue
+    -- Nothing here
     undoOpts _ _ = return NoUndoError
 
-    createOpts :: String -> IO ()
+    -- If first run, create empty options.
+    createOpts :: ScriptName -> IO ()
     createOpts sn = modifyMVar_ mv $ 
-        \st -> maybe (createOpts' st) (const (return st)) $ Map.lookup sn st
+        \st -> maybe (createOpts' st) (const (return st)) (Map.lookup sn st)
       where
         createOpts' st = do
             i <- newIORef []
@@ -131,7 +141,9 @@ mkHandle mv = Handle
             let val = ScriptValues zero zero zero i (UTCTime (toEnum 0) (toEnum 0))
             return $ Map.insert sn val st
     
-    runScript :: String -> IO ()
+    -- If first run, execute script, save ScriptValues to Map
+    -- if other run, check timeout after last execute, when > 5s execute, or return last result
+    runScript :: ScriptName -> IO ()
     runScript sn = modifyMVar_ mv $
         \st -> maybe (runAndUpdate st Nothing) (checkAndReturn st) $ Map.lookup sn st
       where
