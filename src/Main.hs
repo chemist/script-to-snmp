@@ -91,26 +91,19 @@ scripts h fp = Update $ do
 -- | create handle
 mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle
 mkHandle mv = Handle 
-    { exitCodeHandle = \sn -> do
+    { exitCodeHandle = handler exitCode
+    , optionsHandle = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
+    , outputHandle = handler output
+    , errorsHandle = handler errors
+    }
+    where
+    handler f sn = do
         -- execute script by script name, modify mv
         runScript sn  
         m <- readMVar mv 
         -- return exit code for this execution
-        return . exitCode $ m ! sn
-    , optionsHandle = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
-    , outputHandle = \sn -> do
-        runScript sn 
-        -- 
-        m <- readMVar mv
-        -- return stdout for this execution
-        return . output $ m ! sn
-    , errorsHandle = \sn -> do
-        runScript sn 
-        m <- readMVar mv
-        -- return stderr for this execution
-        return . errors $ m ! sn
-    }
-    where
+        return . f $ m ! sn
+
     -- reader for Options
     readOpts sn = do
         createOpts sn 
