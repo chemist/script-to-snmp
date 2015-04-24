@@ -90,27 +90,24 @@ scripts h fp = Update $ do
 -- | create handle
 mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle
 mkHandle mv = Handle 
-    { exitCodeHandle = handler exitCode
-    , optionsHandle = \sn -> rwValue (readOpts sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
-    , outputHandle = handler output
-    , errorsHandle = handler errors
+    { exitCodeHandle = Read . vread exitCode
+    , optionsHandle = \sn -> rwValue (vread options sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
+    , outputHandle = Read . vread output
+    , errorsHandle = Read . vread errors
     }
     where
+    zeroTime = UTCTime (toEnum 0) (toEnum 0)
     -- execute script , make getter for ro result and reexecute 
-    handler f sn = Read $ do
+    vread f sn = do
         -- execute script by script name, modify mv
         runScript sn  
         m <- readMVar mv 
         return . f $ m ! sn
-    readOpts sn = do
-        createOpts sn 
-        m <- readMVar mv
-        return $ options $ m ! sn
     -- setter for Options
     commitOpts sn v = do
-        createOpts sn 
+        runScript sn 
         modifyMVar_ mv $
-            \st -> return $ Map.update (\x -> Just $ x { options = v }) sn st
+            \st -> return $ Map.update (\x -> Just $ x { options = v, lastExec = zeroTime }) sn st
         return NoCommitError
     -- Options must be string
     testOpts _ (String _) = return NoTestError
@@ -118,16 +115,6 @@ mkHandle mv = Handle
     -- Nothing here
     undoOpts _ _ = return NoUndoError
 
-    -- If first run, create empty options.
-    createOpts :: ScriptName -> IO ()
-    createOpts sn = modifyMVar_ mv $ 
-        \st -> maybe (createOpts' st) (const (return st)) (Map.lookup sn st)
-      where
-        createOpts' st = do
-            let zero = str ""
-            let val = ScriptValues zero zero zero zero (UTCTime (toEnum 0) (toEnum 0))
-            return $ Map.insert sn val st
-    
     -- If first run, execute script, save ScriptValues to Map
     -- if other run, check timeout after last execute, when > 5s execute, or return last result
     runScript :: ScriptName -> IO ()
