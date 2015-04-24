@@ -106,8 +106,7 @@ mkHandle mv = Handle
     -- setter for Options
     commitOpts sn v = do
         runScript sn 
-        modifyMVar_ mv $
-            \st -> return $ Map.update (\x -> Just $ x { options = v, lastExec = zeroTime }) sn st
+        modifyMVar_ mv (return . Map.update (\x -> Just $ x { options = v, lastExec = zeroTime }) sn)
         return NoCommitError
     -- Options must be string
     testOpts _ (String _) = return NoTestError
@@ -149,6 +148,4 @@ update = rwValue readV commit test undo
     commit _ = return NoCommitError
     undo _ = return NoUndoError
     readV = return $ String "success"
-
-
 
