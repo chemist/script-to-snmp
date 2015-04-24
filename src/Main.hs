@@ -62,8 +62,8 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
 
 scripts :: Handle -> FilePath -> Update
 scripts h fp = Update $ do
-    files <- filter (\x -> x /= "." && x /= "..") <$> (liftIO $ getDirectoryContents fp)
-    result <- mapM toObjects $ zip files [0 .. fromIntegral (length files)]
+    files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
+    result <-  mapM toObjects $ zip files [0 .. fromIntegral (length files)]
     return $ concat result
     where
     toObjects (n, i) = do
