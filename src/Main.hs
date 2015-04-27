@@ -18,6 +18,7 @@ import System.Exit
 import Data.Map.Strict (Map, (!))
 import qualified Data.Map.Strict as Map
 import Control.Monad
+import Data.Binary
 
 import Prelude 
 
@@ -27,6 +28,7 @@ data Handle = Handle
   , optionsHandle  :: ScriptName -> PVal
   , outputHandle   :: ScriptName -> PVal
   , errorsHandle   :: ScriptName -> PVal
+  , statusHandle   :: ScriptName -> PVal
   }
 
 -- | options for scripts
@@ -35,12 +37,13 @@ type Options = [String]
 type ScriptName = String
 
 data ScriptValues = ScriptValues
-  { exitCode :: Value -- ^ returned value, string
+  { exitCode :: Value -- ^ returned value, int
   , output   :: Value -- ^ output, string
   , errors   :: Value -- ^ errors, string
-  , options  :: Value -- ^ mutable store for options
+  , options  :: Value -- ^ options, string
+  , status   :: Value -- ^ 0 - disabled, 1 - enabled
   , lastExec :: UTCTime -- ^ last execute time
-  }
+  } 
 
 -- | path to folder with users scripts
 scriptsPath :: FilePath
@@ -50,20 +53,34 @@ scriptsPath = "scripts"
 nagiosScriptsPath :: FilePath
 nagiosScriptsPath = "nagios"
 
+-- | state path
+statePath :: FilePath
+statePath = "script-to-snmp-state"
+
 -- | snmp agent
 -- execute scripts and checks in scriptPath and nagiosScriptsPath
 -- return result as SNMP
 main :: IO ()
 main = do
-    mv <- newMVar Map.empty
-    agent "/var/agentx/master" [1,3,6,1,4,1,44729] Nothing (mibs $ mkHandle mv)
+    (config_version, st) <- handle emptyMap (decodeFile statePath)
+    mv <- newMVar st
+    exitStatus <- newEmptyMVar 
+    handle (putMVar exitStatus) $ agent "/var/agentx/master" [1,3,6,1,4,1,44729] Nothing (mibs $ mkHandle mv)
+    _ <- readMVar exitStatus :: IO ExitCode
+    putStrLn "save status"
+    newst <- Map.filter (\x -> status x == enabled || options x /= str "") <$> readMVar mv
+    print newst
+    when (st /= newst) $ encodeFile statePath (succ config_version, newst)
+    where
+      emptyMap :: SomeException -> IO (Integer, Map ScriptName ScriptValues)
+      emptyMap _ = return (1, Map.empty)
 
 -- | build MIB tree
 mibs :: Handle -> [MIB]
 mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 0 "about" "agent-name" Nothing (bstr "script-to-snmp")
            , mkObjectType 1 "about" "version" Nothing (bstr "0.1")
-           , mkObjectType 2 "about" "update" Nothing update
+           , mkObjectType 2 "about" "save" Nothing save
          , mkObject 1 "Fixmon" "scripts" (Just (scripts h scriptsPath))
          , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
          ]
@@ -80,11 +97,12 @@ scripts h fp = Update $ do
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
            else return 
              [ mkObject i fp n Nothing
-             , mkObjectType 0 n "status" Nothing $ exitCodeHandle h (fp </> n)
-             , mkObjectType 1 n "name"   Nothing $ bstr    $ pack (fp </> n)
+             , mkObjectType 0 n "name"   Nothing $ bstr    $ pack (fp </> n)
+             , mkObjectType 1 n "status" Nothing $ statusHandle h (fp </> n)
              , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
-             , mkObjectType 3 n "stdout" Nothing $ outputHandle h (fp </> n)
+             , mkObjectType 3 n "exitCode" Nothing $ exitCodeHandle h (fp </> n)
              , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
+             , mkObjectType 5 n "stdout" Nothing $ outputHandle h (fp </> n)
              ]
 
 -- | create handle
@@ -94,6 +112,7 @@ mkHandle mv = Handle
     , optionsHandle = \sn -> rwValue (vread options sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
     , outputHandle = Read . vread output
     , errorsHandle = Read . vread errors
+    , statusHandle = \sn -> rwValue (vread status sn) (commitStatus sn) (testStatus sn) (undoOpts sn)
     }
     where
     zeroTime = UTCTime (toEnum 0) (toEnum 0)
@@ -113,24 +132,39 @@ mkHandle mv = Handle
     testOpts _ _ = return WrongValue
     -- Nothing here
     undoOpts _ _ = return NoUndoError
+    testStatus _ (Integer 0) = return NoTestError
+    testStatus _ (Integer 1) = return NoTestError
+    testStatus _ (Integer _) = return BadValue
+    testStatus _ _ = return WrongValue
+    commitStatus sn v = do
+        runScript sn
+        modifyMVar_ mv (return . Map.update (\x -> Just x { status = v, lastExec = zeroTime }) sn)
+        return NoCommitError
 
     -- If first run, execute script, save ScriptValues to Map
     -- if other run, check timeout after last execute, when > 5s execute, or return last result
     runScript :: ScriptName -> IO ()
     runScript sn = modifyMVar_ mv $
-        \st -> maybe (runAndUpdate st Nothing) (checkAndReturn st) $ Map.lookup sn st
+        \st -> maybe (runAndUpdate st Nothing Nothing) (checkAndReturn st) $ Map.lookup sn st
       where
-        runAndUpdate st opts' = do
+        runAndUpdate st opts' status' = do
             let String options' = fromMaybe (String "") opts'
-            (c, o, e)  <- catch (readProcessWithExitCode sn (words . unpack $ options') []) 
-                               (\(problem::SomeException) -> return (ExitFailure 1, "", show problem))
-            now <- getCurrentTime
-            let val = ScriptValues (str (show c)) (str o) (str e) (String options') now
-            return $ Map.insert sn val st
+                status'' = fromMaybe disabled status'
+            if status'' == enabled
+               then do
+                   (c, o, e)  <- catch (readProcessWithExitCode sn (words . unpack $ options') []) 
+                                      (\(problem::SomeException) -> return (ExitFailure (-1), "", show problem))
+                   now <- getCurrentTime
+                   let val = ScriptValues (exitToValue c) (str o) (str e) (String options') enabled now
+                   return $ Map.insert sn val st
+               else do
+                   now <- getCurrentTime
+                   let val = ScriptValues (exitToValue $ ExitFailure (-1)) (str "") (str "") (String options') disabled now
+                   return $ Map.insert sn val st
         checkAndReturn st val = do
             now <- getCurrentTime
             if diffUTCTime now (lastExec val) > 5
-               then runAndUpdate st (Just $ options val)
+               then runAndUpdate st (Just $ options val) (Just $ status val)
                else return st
 
 -- | helpers
@@ -140,12 +174,37 @@ bstr x = rsValue (String x)
 str :: String -> Value
 str x = String (pack x)
 
+enabled :: Value
+enabled = Integer 1
+
+disabled :: Value 
+disabled = Integer 0
+
+exitToValue :: ExitCode -> Value
+exitToValue ExitSuccess = Integer 0
+exitToValue (ExitFailure i) = Integer $ fromIntegral i
+
 -- | here must be state saver
-update :: PVal
-update = rwValue readV commit test undo
+save :: PVal
+save = rwValue readV commit test undo
   where
     test _ = return NoTestError
     commit _ = return NoCommitError
     undo _ = return NoUndoError
     readV = return $ String "success"
 
+instance Binary ScriptValues where
+    put sv = do
+        let String s = options sv
+            Integer i = status sv
+        put s >> put i
+    get = do
+        s <- get
+        i <- get
+        return $ ScriptValues (String "") (String "") (String "") (String s) (Integer i) (UTCTime (toEnum 0) (toEnum 0))
+
+instance Eq ScriptValues where
+    a == b = options a == options b && status a == status b
+
+instance Show ScriptValues where
+    show a = show (options a)
