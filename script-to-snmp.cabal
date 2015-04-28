@@ -31,5 +31,6 @@ executable script-to-snmp
                , containers
                , binary
   hs-source-dirs:      src
-  ghc-options: -Wall -O2 -threaded -fprof-auto "-with-rtsopts=-pa"
+--  ghc-options: -Wall -O2 -threaded -fprof-auto "-with-rtsopts=-pa"
+  ghc-options: -Wall -O2 -threaded "-with-rtsopts=-H64m -A16m"
   default-language:    Haskell2010
