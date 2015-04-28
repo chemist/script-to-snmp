@@ -81,10 +81,9 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 0 "about" "agent-name" Nothing (bstr "script-to-snmp")
            , mkObjectType 1 "about" "version" Nothing (bstr "0.1")
            , mkObjectType 2 "about" "save" Nothing save
-         , mkObject 1 "Fixmon" "scripts" (Just (scripts h scriptsPath))
-         , mkObject 2 "Fixmon" "table" Nothing
-         , mkObjectType 1 "table" "count" Nothing (rsValue $ Integer 56)
-         , mkObject 2 "table" "nagios" (Just (scripts h nagiosScriptsPath))
+         -- , mkObject 1 "Fixmon" "scripts" (Just (scripts h scriptsPath))
+         -- , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
+         , mkObject 3 "Fixmon" "nagios_table" (Just (nagiosTable h nagiosScriptsPath))
          ]
 
 -- | recursively MIBs builder from directory structure
@@ -106,6 +105,43 @@ scripts h fp = Update $ do
              , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
              , mkObjectType 5 n "stdout" Nothing $ outputHandle h (fp </> n)
              ]
+
+nagiosTable :: Handle -> FilePath -> Update
+nagiosTable h fp = Update $ do
+    files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
+    return $ mkTable h "nagios_table" Nothing (nagios nagiosScriptsPath) files
+
+
+type Obj = [(String, Handle -> FilePath -> PVal)]
+
+nagios :: FilePath -> Obj
+nagios fp = [ ("name"    , \_ n -> bstr (pack n))
+            , ("status"  , \h n -> statusHandle h (fp </> n))
+            , ("opts"    , \h n -> optionsHandle h (fp </> n))
+            , ("exitCode", \h n -> exitCodeHandle h (fp </> n))
+            , ("stderr"  , \h n -> errorsHandle h (fp </> n))
+            , ("stdout"  , \h n -> outputHandle h (fp </> n))
+            ]
+
+
+mkTable :: Handle -> String -> Maybe Context -> Obj -> [FilePath] -> [MIB]
+mkTable h parent mc obj scripts' =
+    let count = length scripts'
+        size = length obj
+        tableHead = [ mkObject 1 parent "table_size" Nothing
+                    , mkObjectType 0 "table_size" "table_size" mc (rsValue (Gaude32 $ fromIntegral count))
+                    , mkObject 2 parent "table_body" Nothing
+                    , mkObject 1 "table_body" "table_rows" Nothing
+                    ]
+        indexes :: [MIB]
+        indexes = mkObject 1 "table_rows" "indexes" Nothing :
+          map (\x -> mkObjectType x "indexes" ("indexes" ++ show x) mc (rsValue (Integer $ fromIntegral x))) [1 .. (fromIntegral count)]
+        row :: Integer -> (String, Handle -> String -> PVal) -> [MIB]
+        row n (name, pv) = mkObject n "table_rows" name Nothing :
+          (map (\(x, fp) -> mkObjectType x name (name ++ show x) mc (pv h fp)) 
+            $ zip [1 .. (fromIntegral count)] scripts')
+        rows = concatMap (\(i, x) -> row i x) (zip [2 .. (1 + fromIntegral size)] obj)
+    in tableHead ++ indexes ++ rows
 
 -- | create handle
 mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle

@@ -1,0 +1,162 @@
+Fixmon DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, enterprises FROM SNMPv2-SMI;
+
+fixmon MODULE-IDENTITY
+    LAST-UPDATED "201310160000Z"
+    ORGANIZATION "Fixmon"
+    CONTACT-INFO
+            "WG-EMail:   chemist@haskell.su"
+    DESCRIPTION
+            "The MIB module for SNMP entities.
+             Fixmon
+            "
+    ::= { enterprises 44729 }
+
+about         OBJECT IDENTIFIER ::= {fixmon 0}
+nagios        OBJECT IDENTIFIER ::= {fixmon 3}
+
+-- about submodule
+name OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "agent name"
+    ::= { about 0 }
+
+version OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "agent version"
+    ::= { about 1 }
+
+save OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "save handler"
+    ::= { about 2 }
+
+-- define types
+PluginStatus ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "Indicates the enabling or disabling plugin."
+    SYNTAX INTEGER {
+        disabled (0),   -- This class of notifications is disabled
+        enabled  (1)    -- This class of notifications is enabled
+}
+
+ExitCode ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+         "exit status"
+    SYNTAX INTEGER {
+        success (0),
+        error (1),
+        error (2), 
+        error (3),
+        disabled (-1)
+}
+
+-- how many nagios plugin in system
+nagiosPluginCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of entries in firstTable."
+    ::= { nagios 1 }
+
+-- table for nagios plugin
+nagiosTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF NagiosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The first simple table"
+    ::= { nagios 2 }
+
+nagiosEntry OBJECT-TYPE
+    SYNTAX    NagiosEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+       "nagios plugin"
+    INDEX { index }
+    ::= { nagiosTable 1 }
+
+NagiosEntry ::=
+    SEQUENCE {
+        index  DisplayString,
+        name   DisplayString,
+        status  PluginStatus,
+        options DisplayString,
+        exitCode ExitCode,
+        stderr   DisplayString,
+        stdout   DisplayString
+    }
+
+
+index OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin index."
+    ::= { nagiosEntry 1 }
+
+name OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin name."
+    ::= { nagiosEntry 2 }
+
+status OBJECT-TYPE
+    SYNTAX      PluginStatus
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin index."
+    ::= { nagiosEntry 3 }
+
+options OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { nagiosEntry 4 }
+
+exitCode OBJECT-TYPE
+    SYNTAX      ExitCode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { nagiosEntry 5 }
+
+stderr OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin errors."
+    ::= { nagiosEntry 6 }
+
+stdout OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin output."
+    ::= { nagiosEntry 7 }
+
+END
