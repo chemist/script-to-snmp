@@ -98,12 +98,12 @@ scripts h fp = Update $ do
            then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
            else return 
              [ mkObject i fp n Nothing
-             , mkObjectType 0 n "name"   Nothing $ bstr    $ pack (fp </> n)
-             , mkObjectType 1 n "status" Nothing $ statusHandle h (fp </> n)
-             , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
-             , mkObjectType 3 n "exitCode" Nothing $ exitCodeHandle h (fp </> n)
-             , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
-             , mkObjectType 5 n "stdout" Nothing $ outputHandle h (fp </> n)
+               , mkObjectType 0 n "name"   Nothing $ bstr    $ pack (fp </> n)
+               , mkObjectType 1 n "status" Nothing $ statusHandle h (fp </> n)
+               , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
+               , mkObjectType 3 n "exitCode" Nothing $ exitCodeHandle h (fp </> n)
+               , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
+               , mkObjectType 5 n "stdout" Nothing $ outputHandle h (fp </> n)
              ]
 
 nagiosTable :: Handle -> FilePath -> Update
@@ -135,10 +135,10 @@ mkTable h parent mc obj scripts' =
                     ]
         indexes :: [MIB]
         indexes = mkObject 1 "table_rows" "indexes" Nothing :
-          map (\x -> mkObjectType x "indexes" ("indexes" ++ show x) mc (rsValue (Integer $ fromIntegral x))) [1 .. (fromIntegral count)]
+          map (\x -> mkObjectType x "indexes" "" mc (rsValue (Integer $ fromIntegral x))) [1 .. (fromIntegral count)]
         row :: Integer -> (String, Handle -> String -> PVal) -> [MIB]
         row n (name, pv) = mkObject n "table_rows" name Nothing :
-          (map (\(x, fp) -> mkObjectType x name (name ++ show x) mc (pv h fp)) 
+          (map (\(x, fp) -> mkObjectType x name "" mc (pv h fp)) 
             $ zip [1 .. (fromIntegral count)] scripts')
         rows = concatMap (\(i, x) -> row i x) (zip [2 .. (1 + fromIntegral size)] obj)
     in tableHead ++ indexes ++ rows
