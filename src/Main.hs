@@ -82,7 +82,9 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 1 "about" "version" Nothing (bstr "0.1")
            , mkObjectType 2 "about" "save" Nothing save
          , mkObject 1 "Fixmon" "scripts" (Just (scripts h scriptsPath))
-         , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
+         , mkObject 2 "Fixmon" "table" Nothing
+         , mkObjectType 1 "table" "count" Nothing (rsValue $ Integer 56)
+         , mkObject 2 "table" "nagios" (Just (scripts h nagiosScriptsPath))
          ]
 
 -- | recursively MIBs builder from directory structure
