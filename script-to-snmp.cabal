@@ -30,6 +30,7 @@ executable script-to-snmp
                , time
                , containers
                , binary
+               , temporary
   hs-source-dirs:      src
 --  ghc-options: -Wall -O2 -threaded -fprof-auto "-with-rtsopts=-pa"
   ghc-options: -Wall -O2 -threaded "-with-rtsopts=-H64m -A16m"

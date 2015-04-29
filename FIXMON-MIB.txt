@@ -49,7 +49,11 @@ PluginStatus ::= TEXTUAL-CONVENTION
         "Indicates the enabling or disabling plugin."
     SYNTAX INTEGER {
         disabled (0),   -- This class of notifications is disabled
-        enabled  (1)    -- This class of notifications is enabled
+        enabled  (1),    -- This class of notifications is enabled
+        duplicate (2),   -- create alias
+        remove (3),     -- remove alias
+        adisabled (10),
+        aenabled (11)
 }
 
 ExitCode ::= TEXTUAL-CONVENTION
@@ -80,6 +84,7 @@ nagiosTable OBJECT-TYPE
     STATUS      current
     DESCRIPTION
         "The first simple table"
+    INDEX { scriptname, options }
     ::= { nagios 2 }
 
 nagiosEntry OBJECT-TYPE
@@ -88,13 +93,12 @@ nagiosEntry OBJECT-TYPE
     STATUS current
     DESCRIPTION
        "nagios plugin"
-    INDEX { index }
     ::= { nagiosTable 1 }
 
 NagiosEntry ::=
     SEQUENCE {
-        index  DisplayString,
-        name   DisplayString,
+        indexPlugin  DisplayString,
+        scriptname   DisplayString,
         status  PluginStatus,
         options DisplayString,
         exitCode ExitCode,
@@ -103,7 +107,7 @@ NagiosEntry ::=
     }
 
 
-index OBJECT-TYPE
+indexPlugin OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
@@ -111,7 +115,7 @@ index OBJECT-TYPE
     "plugin index."
     ::= { nagiosEntry 1 }
 
-name OBJECT-TYPE
+scriptname OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
@@ -124,7 +128,7 @@ status OBJECT-TYPE
     MAX-ACCESS  read-write
     STATUS      current
     DESCRIPTION
-    "plugin index."
+    "plugin status."
     ::= { nagiosEntry 3 }
 
 options OBJECT-TYPE
