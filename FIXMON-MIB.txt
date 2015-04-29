@@ -1,0 +1,266 @@
+Fixmon DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, enterprises FROM SNMPv2-SMI;
+
+fixmon MODULE-IDENTITY
+    LAST-UPDATED "201310160000Z"
+    ORGANIZATION "Fixmon"
+    CONTACT-INFO
+            "WG-EMail:   chemist@haskell.su"
+    DESCRIPTION
+            "The MIB module for SNMP entities.
+             Fixmon
+            "
+    ::= { enterprises 44729 }
+
+about         OBJECT IDENTIFIER ::= {fixmon 0}
+scripts       OBJECT IDENTIFIER ::= {fixmon 1}
+scriptsPlugins OBJECT IDENTIFIER ::= {scripts 1}
+nagios        OBJECT IDENTIFIER ::= {fixmon 2}
+nagiosPlugins OBJECT IDENTIFIER ::= {nagios 1}
+
+-- about submodule
+name OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "agent name"
+    ::= { about 0 }
+
+version OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "agent version"
+    ::= { about 1 }
+
+save OBJECT-TYPE
+    SYNTAX      OctetString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "save handler"
+    ::= { about 2 }
+
+-- define types
+PluginStatus ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "Indicates the enabling or disabling plugin."
+    SYNTAX INTEGER {
+        disabled (0),   -- This class of notifications is disabled
+        enabled  (1),    -- This class of notifications is enabled
+        duplicate (2),   -- create alias
+        remove (3),     -- remove alias
+        adisabled (10),
+        aenabled (11)
+}
+
+ExitCode ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+         "exit status"
+    SYNTAX INTEGER {
+        success (0),
+        error (1),
+        error (2), 
+        error (3),
+        disabled (-1)
+}
+
+-- how many scripts in system
+scriptsCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of entries in firstTable."
+    ::= { scriptsPlugins 1 }
+
+-- table for scripts
+scriptsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ScriptEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The first simple table"
+    INDEX { scriptname, options }
+    ::= { scriptsPlugins 2 }
+
+scriptEntry OBJECT-TYPE
+    SYNTAX    ScriptEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+       "nagios plugin"
+    ::= { scriptsTable 1 }
+
+ScriptEntry ::=
+    SEQUENCE {
+        scriptIndex  DisplayString,
+        scriptName   DisplayString,
+        scriptStatus  PluginStatus,
+        scriptOptions DisplayString,
+        scriptExitCode ExitCode,
+        scriptStderr   DisplayString,
+        scriptStdout   DisplayString
+    }
+
+
+scriptIndex OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin index."
+    ::= { scriptEntry 1 }
+
+scriptName OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin name."
+    ::= { scriptEntry 2 }
+
+scriptStatus OBJECT-TYPE
+    SYNTAX      PluginStatus
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin status."
+    ::= { scriptEntry 3 }
+
+scriptOptions OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { scriptEntry 4 }
+
+scriptExitCode OBJECT-TYPE
+    SYNTAX      ExitCode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { scriptEntry 5 }
+
+scriptStderr OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin errors."
+    ::= { scriptEntry 6 }
+
+scriptStdout OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin output."
+    ::= { scriptEntry 7 }
+
+
+-- table for nagios plugin
+
+-- how many nagios plugin in system
+nagiosCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of entries in firstTable."
+    ::= { nagiosPlugins 1 }
+
+nagiosTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF NagiosEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The first simple table"
+    INDEX { scriptname, options }
+    ::= { nagiosPlugins 2 }
+
+nagiosEntry OBJECT-TYPE
+    SYNTAX    NagiosEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+       "nagios plugin"
+    ::= { nagiosTable 1 }
+
+NagiosEntry ::=
+    SEQUENCE {
+        nagiosIndex  DisplayString,
+        nagiosName   DisplayString,
+        nagiosStatus  PluginStatus,
+        nagiosOptions DisplayString,
+        nagiosExitCode ExitCode,
+        nagiosStderr   DisplayString,
+        nagiosStdout   DisplayString
+    }
+
+
+nagiosIndex OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin index."
+    ::= { nagiosEntry 1 }
+
+nagiosName OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin name."
+    ::= { nagiosEntry 2 }
+
+nagiosStatus OBJECT-TYPE
+    SYNTAX      PluginStatus
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin status."
+    ::= { nagiosEntry 3 }
+
+nagiosOptions OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { nagiosEntry 4 }
+
+nagiosExitCode OBJECT-TYPE
+    SYNTAX      ExitCode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { nagiosEntry 5 }
+
+nagiosStderr OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin errors."
+    ::= { nagiosEntry 6 }
+
+nagiosStdout OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin output."
+    ::= { nagiosEntry 7 }
+
+END
