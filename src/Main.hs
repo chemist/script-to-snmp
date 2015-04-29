@@ -50,9 +50,13 @@ data ScriptValues = ScriptValues
 scriptsPath :: FilePath
 scriptsPath = "scripts"
 
+-- | path to folder with users scripts
+scriptsAliasesPath :: FilePath
+scriptsAliasesPath = "scripts_aliases"
+
 -- | path to folder with nagios plugins
-nagiosScriptsPath :: FilePath
-nagiosScriptsPath = "nagios"
+nagiosPluginsPath :: FilePath
+nagiosPluginsPath = "nagios"
 
 -- | path to nagios plugins aliases
 nagiosAliasesPath :: FilePath
@@ -86,42 +90,24 @@ mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 0 "about" "agent-name" Nothing (bstr "script-to-snmp")
            , mkObjectType 1 "about" "version" Nothing (bstr "0.1")
            , mkObjectType 2 "about" "save" Nothing save
-         -- , mkObject 1 "Fixmon" "scripts" (Just (scripts h scriptsPath))
+         , mkObject 1 "Fixmon" "scripts" Nothing
+           , mkObject 1 "scripts" "scripts_table" (Just (table h scriptsPath scriptsAliasesPath))
          -- , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
-         , mkObject 3 "Fixmon" "nagios_table" (Just (nagiosTable h nagiosScriptsPath nagiosAliasesPath))
+         , mkObject 2 "Fixmon" "nagios" Nothing
+           , mkObject 1 "nagios" "nagios_table" (Just (table h nagiosPluginsPath nagiosAliasesPath))
          ]
 
--- | recursively MIBs builder from directory structure
-scripts :: Handle -> FilePath -> Update
-scripts h fp = Update $ do
-    files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
-    concat <$> zipWithM toObjects files [0..]
-    where
-    toObjects n i = do
-        isD <- liftIO $ doesDirectoryExist (fp </> n)
-        if isD
-           then return $ [mkObject i fp n (Just (scripts h (fp </> n)))]
-           else return 
-             [ mkObject i fp n Nothing
-               , mkObjectType 0 n "name"   Nothing $ bstr    $ pack (fp </> n)
-               , mkObjectType 1 n "status" Nothing $ statusHandle h (fp </> n)
-               , mkObjectType 2 n "opts"   Nothing $ optionsHandle h (fp </> n)
-               , mkObjectType 3 n "exitCode" Nothing $ exitCodeHandle h (fp </> n)
-               , mkObjectType 4 n "stderr" Nothing $ errorsHandle h (fp </> n)
-               , mkObjectType 5 n "stdout" Nothing $ outputHandle h (fp </> n)
-             ]
-
-nagiosTable :: Handle -> FilePath -> FilePath -> Update
-nagiosTable h fp afp = Update $ do
-    files <- filter (`notElem` [".", ".."]) <$> (liftIO $ getDirectoryContents fp)
+table :: Handle -> FilePath -> FilePath -> Update
+table h fp afp = Update $ do
+    files <- liftIO $ getDeepDirectoryContents fp
     aliases <- liftIO $ getDeepDirectoryContents afp
-    return $ mkTable h "nagios_table" Nothing nagios (map (fp </>) files ++ map (afp </>) aliases) 
+    return $ mkTable h "nagios_table" Nothing object (map (fp </>) files ++ map (afp </>) aliases) 
 
 
 type Obj = [(String, Handle -> FilePath -> PVal)]
 
-nagios :: Obj
-nagios = [ ("name"    , \_ n -> bstr (pack (takeFileName n)))
+object :: Obj
+object = [ ("name"    , \_ n -> bstr (pack (takeFileName n)))
          , ("status"  , \h n -> statusHandle h n)
          , ("opts"    , \h n -> optionsHandle h n)
          , ("exitCode", \h n -> exitCodeHandle h n)
@@ -181,8 +167,7 @@ mkHandle mv = Handle
     testStatus _ (Integer 2) = return NoTestError
     testStatus sn (Integer 3) = do
         -- only aliases can be removed
-        let d = dropFileName sn
-        if (equalFilePath d nagiosScriptsPath)
+        if (isNotAlias sn)
            then return NoAccess
            else return NoTestError
     testStatus _ (Integer _) = return BadValue
@@ -190,14 +175,14 @@ mkHandle mv = Handle
     commitStatus sn (Integer 2) = do
         -- add alias
         let f = takeFileName sn
-        aliasDirectory <- createTempDirectory nagiosAliasesPath f 
+        aliasDirectory <- createTempDirectory (getAliasDirectory sn) f 
         copyFile sn (aliasDirectory </> f)
         runScript (aliasDirectory </> f)
         return NoCommitError
     commitStatus sn (Integer 3) = do
         -- remove alias
         let d = dropFileName sn
-        if (equalFilePath d nagiosScriptsPath)
+        if (isNotAlias sn)
            then return CommitFailed
            else do
                removeFile sn
@@ -206,8 +191,7 @@ mkHandle mv = Handle
                return NoCommitError
     commitStatus sn v = do
         runScript sn
-        let d = dropFileName sn
-            vv = if (equalFilePath d nagiosScriptsPath) then v else addTen v
+        let vv = if (isNotAlias sn) then v else addTen v
         modifyMVar_ mv (return . Map.update (\x -> Just x { status = vv, lastExec = zeroTime }) sn)
         return NoCommitError
     addTen (Integer x) = Integer $ x + 10
@@ -221,18 +205,17 @@ mkHandle mv = Handle
       where
         runAndUpdate st opts' status' = do
             let String options' = fromMaybe (String "") opts'
-                isNotAlias = equalFilePath nagiosScriptsPath (dropFileName sn)
-                status'' = fromMaybe (disabled isNotAlias) status'
-            if status'' == enabled isNotAlias
+                status'' = fromMaybe (disabled $ isNotAlias sn) status'
+            if status'' == enabled (isNotAlias sn)
                then do
                    (c, o, e)  <- catch (readProcessWithExitCode sn (words . unpack $ options') []) 
                                       (\(problem::SomeException) -> return (ExitFailure (-1), "", show problem))
                    now <- getCurrentTime
-                   let val = ScriptValues (exitToValue c) (str o) (str e) (String options') (enabled isNotAlias) now
+                   let val = ScriptValues (exitToValue c) (str o) (str e) (String options') (enabled $ isNotAlias sn) now
                    return $ Map.insert sn val st
                else do
                    now <- getCurrentTime
-                   let val = ScriptValues (exitToValue $ ExitFailure (-1)) (str "") (str "") (String options') (disabled isNotAlias) now
+                   let val = ScriptValues (exitToValue $ ExitFailure (-1)) (str "") (str "") (String options') (disabled $ isNotAlias sn) now
                    return $ Map.insert sn val st
         checkAndReturn st val = do
             now <- getCurrentTime
@@ -272,6 +255,25 @@ getDeepDirectoryContents fp = do
                f <- filter (`notElem` [".", ".."]) <$> getDirectoryContents (fp </> x)
                concat <$> mapM (\y -> fun (x </> y)) f
            else return [x]
+
+base :: FilePath -> FilePath
+base = head . splitDirectories
+
+isScripts :: FilePath -> Bool
+isScripts fp = scriptsPath == base fp
+
+isNagiosPlugin :: FilePath -> Bool
+isNagiosPlugin fp = nagiosPluginsPath == base fp
+
+getAliasDirectory :: FilePath -> FilePath
+getAliasDirectory fp 
+  | isScripts fp = scriptsAliasesPath
+  | otherwise = nagiosAliasesPath
+             
+
+isNotAlias :: FilePath -> Bool
+isNotAlias fp = nagiosPluginsPath == (base fp) || scriptsPath == (base fp)
+
 
 -- | here must be state saver
 save :: PVal

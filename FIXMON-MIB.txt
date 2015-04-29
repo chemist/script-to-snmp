@@ -15,7 +15,10 @@ fixmon MODULE-IDENTITY
     ::= { enterprises 44729 }
 
 about         OBJECT IDENTIFIER ::= {fixmon 0}
-nagios        OBJECT IDENTIFIER ::= {fixmon 3}
+scripts       OBJECT IDENTIFIER ::= {fixmon 1}
+scriptsPlugins OBJECT IDENTIFIER ::= {scripts 1}
+nagios        OBJECT IDENTIFIER ::= {fixmon 2}
+nagiosPlugins OBJECT IDENTIFIER ::= {nagios 1}
 
 -- about submodule
 name OBJECT-TYPE
@@ -68,16 +71,113 @@ ExitCode ::= TEXTUAL-CONVENTION
         disabled (-1)
 }
 
--- how many nagios plugin in system
-nagiosPluginCounter OBJECT-TYPE
+-- how many scripts in system
+scriptsCounter OBJECT-TYPE
     SYNTAX      Unsigned32
     MAX-ACCESS  read-only
     STATUS      current
     DESCRIPTION
         "The number of entries in firstTable."
-    ::= { nagios 1 }
+    ::= { scriptsPlugins 1 }
+
+-- table for scripts
+scriptsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ScriptEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The first simple table"
+    INDEX { scriptname, options }
+    ::= { scriptsPlugins 2 }
+
+scriptEntry OBJECT-TYPE
+    SYNTAX    ScriptEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+       "nagios plugin"
+    ::= { scriptsTable 1 }
+
+ScriptEntry ::=
+    SEQUENCE {
+        scriptIndex  DisplayString,
+        scriptName   DisplayString,
+        scriptStatus  PluginStatus,
+        scriptOptions DisplayString,
+        scriptExitCode ExitCode,
+        scriptStderr   DisplayString,
+        scriptStdout   DisplayString
+    }
+
+
+scriptIndex OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin index."
+    ::= { scriptEntry 1 }
+
+scriptName OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin name."
+    ::= { scriptEntry 2 }
+
+scriptStatus OBJECT-TYPE
+    SYNTAX      PluginStatus
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin status."
+    ::= { scriptEntry 3 }
+
+scriptOptions OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { scriptEntry 4 }
+
+scriptExitCode OBJECT-TYPE
+    SYNTAX      ExitCode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin options."
+    ::= { scriptEntry 5 }
+
+scriptStderr OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin errors."
+    ::= { scriptEntry 6 }
+
+scriptStdout OBJECT-TYPE
+    SYNTAX      DisplayString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+    "plugin output."
+    ::= { scriptEntry 7 }
+
 
 -- table for nagios plugin
+
+-- how many nagios plugin in system
+nagiosCounter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of entries in firstTable."
+    ::= { nagiosPlugins 1 }
+
 nagiosTable OBJECT-TYPE
     SYNTAX      SEQUENCE OF NagiosEntry
     MAX-ACCESS  not-accessible
@@ -85,7 +185,7 @@ nagiosTable OBJECT-TYPE
     DESCRIPTION
         "The first simple table"
     INDEX { scriptname, options }
-    ::= { nagios 2 }
+    ::= { nagiosPlugins 2 }
 
 nagiosEntry OBJECT-TYPE
     SYNTAX    NagiosEntry
@@ -97,17 +197,17 @@ nagiosEntry OBJECT-TYPE
 
 NagiosEntry ::=
     SEQUENCE {
-        indexPlugin  DisplayString,
-        scriptname   DisplayString,
-        status  PluginStatus,
-        options DisplayString,
-        exitCode ExitCode,
-        stderr   DisplayString,
-        stdout   DisplayString
+        nagiosIndex  DisplayString,
+        nagiosName   DisplayString,
+        nagiosStatus  PluginStatus,
+        nagiosOptions DisplayString,
+        nagiosExitCode ExitCode,
+        nagiosStderr   DisplayString,
+        nagiosStdout   DisplayString
     }
 
 
-indexPlugin OBJECT-TYPE
+nagiosIndex OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
@@ -115,7 +215,7 @@ indexPlugin OBJECT-TYPE
     "plugin index."
     ::= { nagiosEntry 1 }
 
-scriptname OBJECT-TYPE
+nagiosName OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
@@ -123,7 +223,7 @@ scriptname OBJECT-TYPE
     "plugin name."
     ::= { nagiosEntry 2 }
 
-status OBJECT-TYPE
+nagiosStatus OBJECT-TYPE
     SYNTAX      PluginStatus
     MAX-ACCESS  read-write
     STATUS      current
@@ -131,7 +231,7 @@ status OBJECT-TYPE
     "plugin status."
     ::= { nagiosEntry 3 }
 
-options OBJECT-TYPE
+nagiosOptions OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-write
     STATUS      current
@@ -139,7 +239,7 @@ options OBJECT-TYPE
     "plugin options."
     ::= { nagiosEntry 4 }
 
-exitCode OBJECT-TYPE
+nagiosExitCode OBJECT-TYPE
     SYNTAX      ExitCode
     MAX-ACCESS  read-only
     STATUS      current
@@ -147,7 +247,7 @@ exitCode OBJECT-TYPE
     "plugin options."
     ::= { nagiosEntry 5 }
 
-stderr OBJECT-TYPE
+nagiosStderr OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
@@ -155,7 +255,7 @@ stderr OBJECT-TYPE
     "plugin errors."
     ::= { nagiosEntry 6 }
 
-stdout OBJECT-TYPE
+nagiosStdout OBJECT-TYPE
     SYNTAX      DisplayString
     MAX-ACCESS  read-only
     STATUS      current
