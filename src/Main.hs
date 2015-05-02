@@ -71,15 +71,17 @@ statePath = "script-to-snmp-state"
 -- return result as SNMP
 main :: IO ()
 main = do
-    (config_version, st) <- handle emptyMap (decodeFile statePath)
+    (configVersion, st) <- handle emptyMap (decodeFile statePath)
     mv <- newMVar st
+    cv <- newMVar configVersion
     exitStatus <- newEmptyMVar 
-    handle (putMVar exitStatus) $ agent "/var/agentx/master" [1,3,6,1,4,1,44729] Nothing (mibs $ mkHandle mv)
+    handle (putMVar exitStatus) $ agent "/var/agentx/master" [1,3,6,1,4,1,44729] Nothing (mibs (mkHandle cv mv))
     _ <- readMVar exitStatus :: IO ExitCode
     putStrLn "save status"
     newst <- Map.filter (\x -> status x == enabled True || status x == enabled False || options x /= str "") <$> readMVar mv
     print newst
-    when (st /= newst) $ encodeFile statePath (succ config_version, newst)
+    newcv <- readMVar cv
+    when (st /= newst) $ encodeFile statePath (newcv, newst)
     where
       emptyMap :: SomeException -> IO (Integer, Map ScriptName ScriptValues)
       emptyMap _ = return (1, Map.empty)
@@ -89,7 +91,7 @@ mibs :: Handle -> [MIB]
 mibs h = [ mkObject 0 "Fixmon" "about" Nothing
            , mkObjectType 0 "about" "agent-name" Nothing (bstr "script-to-snmp")
            , mkObjectType 1 "about" "version" Nothing (bstr "0.1")
-           , mkObjectType 2 "about" "save" Nothing save
+           , mkObjectType 2 "about" "config_version" Nothing save
          , mkObject 1 "Fixmon" "scripts" Nothing
            , mkObject 1 "scripts" "scripts_table" (Just (table h scriptsPath scriptsAliasesPath))
          -- , mkObject 2 "Fixmon" "nagios" (Just (scripts h nagiosScriptsPath))
@@ -136,8 +138,8 @@ mkTable h parent mc obj scripts' =
     in tableHead ++ indexes ++ rows
 
 -- | create handle
-mkHandle :: MVar (Map ScriptName ScriptValues) -> Handle
-mkHandle mv = Handle 
+mkHandle :: MVar Integer -> MVar (Map ScriptName ScriptValues) -> Handle
+mkHandle cv mv = Handle 
     { exitCodeHandle = Read . vread exitCode
     , optionsHandle = \sn -> rwValue (vread options sn) (commitOpts sn) (testOpts sn) (undoOpts sn)
     , outputHandle = Read . vread output
@@ -155,6 +157,7 @@ mkHandle mv = Handle
     -- setter for Options
     commitOpts sn v = do
         runScript sn 
+        updateVersion
         modifyMVar_ mv (return . Map.update (\x -> Just $ x { options = v, lastExec = zeroTime }) sn)
         return NoCommitError
     -- Options must be string
@@ -173,6 +176,7 @@ mkHandle mv = Handle
     testStatus _ (Integer _) = return BadValue
     testStatus _ _ = return WrongValue
     commitStatus sn (Integer 2) = do
+        updateVersion
         -- add alias
         let f = takeFileName sn
         aliasDirectory <- createTempDirectory (getAliasDirectory sn) f 
@@ -180,6 +184,7 @@ mkHandle mv = Handle
         runScript (aliasDirectory </> f)
         return NoCommitError
     commitStatus sn (Integer 3) = do
+        updateVersion
         -- remove alias
         let d = dropFileName sn
         if (isNotAlias sn)
@@ -190,12 +195,15 @@ mkHandle mv = Handle
                modifyMVar_ mv (return . Map.delete sn)
                return NoCommitError
     commitStatus sn v = do
+        updateVersion
         runScript sn
         let vv = if (isNotAlias sn) then v else addTen v
         modifyMVar_ mv (return . Map.update (\x -> Just x { status = vv, lastExec = zeroTime }) sn)
         return NoCommitError
     addTen (Integer x) = Integer $ x + 10
     addTen _ = undefined
+    -- update verion
+    updateVersion = modifyMVar_ cv (return . succ)
 
     -- If first run, execute script, save ScriptValues to Map
     -- if other run, check timeout after last execute, when > 5s execute, or return last result
